@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
+<wallpapers>
+  <wallpaper>
+    <name>Rat and Pig</name>
+    <filename>/usr/share/backgrounds/tiles/pearls_pat.png</filename>
+    <options>wallpaper</options>
+    <shade_type>solid</shade_type>
+    <pcolor>#CCEEFF</pcolor>
+    <scolor>#003399</scolor>
+  </wallpaper>
+  <wallpaper>
+    <name>Rat and Pig (modified)</name>
+    <filename>/usr/share/backgrounds/tiles/pearls_pat_mod.png</filename>
+    <options>wallpaper</options>
+    <shade_type>solid</shade_type>
+    <pcolor>#CCEEFF</pcolor>
+    <scolor>#003399</scolor>
+  </wallpaper>
+</wallpapers>

@@ -1,0 +1,494 @@
+
+set AppsDir /usr/share/applications
+set AppHist [list]
+set HistSize 100
+set HistFile [file join $env(HOME) .klaunch]
+
+set IconDir /usr/share/icons
+set icThemes *
+set icSizes  "{32x32,48x48,16x16}"
+
+option add *Message.font "Helvetica 8" widgetDefault
+option add *Message.borderwidth 1 widgetDefault
+option add *Message.background yellow widgetDefault
+option add *Message.relief solid widgetDefault
+option add *Button.font "Helvetica 8 bold" widgetDefault
+
+
+array set Aliases {
+    Audio	AudioVideo
+    Video	AudioVideo
+}
+
+array set Categories {
+    AudioVideo	"Sound & Video"
+    Development	"Programming"
+    Education	"Education"
+    Game	"Games"
+    Graphics	"Graphics"
+    Network	"Internet"
+    Office	"Office"
+    Settings	"Settings"
+    System	"System Tools"
+    Utility	"Accessories"
+}
+
+array set Kws {
+    "%F" 0 "%U" 0
+    "%f" 0 "%u" 0
+}
+
+#package require tkpng
+
+proc AppTryExec { TryExec } {
+    global env
+
+    if {$TryExec == ""} {
+	return 0
+    }
+    if {[file exists $TryExec]} {
+	return 0
+    }
+    foreach dp [split $env(PATH) ":"] {
+	if {[file exists [file join $dp $TryExec]]} {
+	    return 0
+	}
+    }
+    return 1
+}
+
+
+proc ReadApp {app} {
+    global Alises
+    global Categories
+
+    # Read desktop entries
+    set fd [open $app r]
+    array set capp {}
+    foreach ln [split [read $fd] "\n"] {
+	foreach {key val} [split $ln "="] break
+	set capp($key) $val
+    }
+    close $fd
+
+    foreach {rq dft} {
+	NoDisplay false 
+	Comment ""
+	Hidden false
+	Terminal false
+	Path ""
+	TryExec ""
+	Icon ""
+    } {
+	if {![info exists capp($rq)]} {
+	    set capp($rq) $dft
+	}
+    }
+    foreach rq {Type Name Exec Categories} {
+	if {![info exists capp($rq)]} {
+	    error "missing $rq key"
+	}
+    }
+    if {$capp(Type) != "Application"  \
+	    || [AppTryExec $capp(TryExec)] \
+	    || [string tolower $capp(Hidden)] == "true" \
+	    || $capp(Hidden) == "1" 
+	    || [string tolower $capp(NoDisplay)] == "true" \
+	    || $capp(NoDisplay) == "1"} {
+	error ""
+    }
+    set capp(Menu) {}
+
+    foreach cat [split $capp(Categories) ";"] {
+	if {[info exists Aliases($cat)]} {
+	    set cat $Alisases($cat)
+	}
+	if {[info exists Categories($cat)]} {
+	    set capp(Menu) $cat
+	}
+    }
+
+    if {$capp(Menu) == ""} {
+	error ""
+    }
+    
+    if {[string tolower $capp(Terminal)] == "true" || $capp(Terminal) == "1"} {
+	set capp(Terminal) 1
+    } else {
+	set capp(Terminal) 0
+    }
+
+    return [list \
+		$capp(Menu) \
+		$capp(Name) \
+		$capp(Exec) \
+		$capp(Path) \
+		$capp(Comment) \
+		$capp(Terminal) \
+		$capp(Icon) \
+	       ]
+}
+
+proc AppSort {a b} {
+    global Categories
+
+    foreach {m_a n_a} $a break
+    foreach {m_b n_b} $b break
+
+    set m_a $Categories($m_a)
+    set m_b $Categories($m_b)
+
+    return [string compare "$m_a.$n_a" "$m_b.$n_b"]
+}
+
+
+proc ScanApps {} {
+    global AppsDir
+
+    set apps [list]
+    foreach app [glob -directory $AppsDir -nocomplain -- *.desktop] {
+	if {[catch {ReadApp $app} dat]} {
+	    if {$dat != ""} {
+		puts stderr "$app: $dat"
+	    }
+	} else {
+	    lappend apps $dat
+	}
+    }
+    return [lsort -command AppSort $apps]
+}
+
+proc AppsMenu {w apps} {
+    global Categories
+
+    menu $w -tearoff 0 -takefocus 1
+
+    array set mm {}
+    set mid 0
+
+    foreach app $apps {
+	foreach {Menu Name Exec Path Comment Terminal Icon} $app break
+
+	if {![info exists mm($Menu)]} {
+	    set mm() mm[incr mid]
+
+	    set mm($Menu) "$w.mm[incr mid]"
+	    menu $mm($Menu) -tearoff 0
+
+	    $w add cascade -label $Categories($Menu) -menu $mm($Menu)
+
+	}
+	set Menu $mm($Menu)
+
+	$Menu add command -label $Name -command [list AppLaunch $app]
+    }
+
+    return $w
+}
+
+
+proc launch {Exec Path} {
+    global Kws
+
+    set cmd [list]
+    foreach arg $Exec {
+	if {![info exists Kws($arg)]} {
+	    lappend cmd $arg
+	}
+    }
+
+    if {$Path != ""} {
+	set oldPath [pwd]
+	cd $Path
+	eval exec $cmd &
+	cd $oldPath
+    } else {
+	eval exec $cmd &
+    }
+}
+
+proc AppLaunch {app} {
+    foreach {Menu Name Exec Path Comment Terminal Icon} $app break
+    launch $Exec $Path
+    # Add stuff to the MRU list
+    global AppHist HistSize
+
+    set newHist [list $app]
+    foreach hApp $AppHist {
+	foreach {hMenu hName} $hApp break
+	if {$hName == $Name} continue
+	lappend newHist $hApp
+	if {[llength $newHist] >= $HistSize} {
+	    break
+	}
+    }
+
+    set AppHist $newHist
+    SaveHist
+}
+
+proc PieCleanUp {w n} {
+    if {$w != $n} return
+
+    grab release $w
+    destroy $w
+    eval image delete [image names]
+}
+
+proc PieLaunch {w app} {
+    PieCleanUp $w $w
+    AppLaunch $app
+}
+
+
+proc DoAppsMenu {} {
+    set apps [ScanApps]
+
+    destroy .m
+    set menu [AppsMenu .m $apps]
+    update
+
+    tk_popup $menu [winfo pointerx .] [winfo pointery .]
+}
+
+
+# Save History
+proc SaveHist {} {
+    global AppHist HistSize HistFile
+
+    if {[catch {open $HistFile w} fd ]} {
+	puts stderr "$HistFile: $fd"
+	return
+    }
+    puts $fd "# Do not edit... this file is automatically generated"
+    puts $fd "set HistSize $HistSize"
+    puts $fd "set AppHist [list $AppHist]"
+    close $fd
+
+}
+
+proc center_toplevel {w} {
+    # Callback on the <Configure> event for a toplevel
+    # that should be centered on the screen
+    
+    # Make sure that we aren't configuring a child window
+    # puts "Center toplevel $w [winfo toplevel $w]"
+
+    if { [string equal $w [winfo toplevel $w]] } {
+
+	set scw [winfo screenwidth $w]
+	set sch [winfo screenheight $w]
+
+	# Calculate the desired geometry
+	
+	set width [winfo reqwidth $w]
+	set height [winfo reqheight $w]
+	set x [expr { [winfo pointerx $w] - $width / 2}]
+	set y [expr { [winfo pointery $w] - $height / 2}]
+
+	if {$x < 0} { set x 0 }
+	if {$y < 0} { set y 0 }
+	if {$x+$width > $scw} {set x [expr {$scw - $width}] }
+	if {$y+$height > $sch} {set y [expr {$sch - $height}] }
+
+
+	# Hand the geometry off to the window manager
+	after idle wm geometry $w ${width}x${height}+${x}+${y}
+	# puts "$w ${width}x${height}+${x}+${y}"
+	
+	# Unbind <Configure> so that this procedure is
+	# not called again when the window manager finishes
+	# centering the window
+
+	bind $w <Configure> {}
+
+    }
+
+    return
+}
+
+proc PickCell {r sz2 dx_r dy_r grid_r} {
+    upvar $dx_r dx
+    upvar $dy_r dy
+    upvar $grid_r grid
+
+    set dx {}
+    set dy {}
+
+    while {$r <= $sz2} {
+	for {set row -$r} {$row < $r} {incr row} {
+	    for {set col -$r} {$col < $r} {incr col} {
+		if { $col*$col+$row*$row >= $r*$r } continue
+		set nx [expr {$sz2 + $col}]
+		set ny [expr {$sz2 + $row}]
+		if {[info exists grid($nx,$ny)]} continue
+
+		set grid($nx,$ny) 1
+		set dx $nx
+		set dy $ny
+
+		return $r
+	    }
+	}
+	incr r
+    }
+}
+
+proc PopHint {x y w txt} {
+    global HintFont
+
+    toplevel $w.t
+    wm resizable $w.t 0 0
+    wm overrideredirect $w.t 1
+
+    array set grdat [grid info $w]
+    foreach {wd ht} [grid bbox $grdat(-in) $grdat(-column) $grdat(-row)] {}
+
+    set px [expr {[winfo rootx $w]+$wd}]
+    set py [expr {[winfo rooty $w]+$ht}]
+
+    message $w.t.a -text $txt
+    pack $w.t.a -side top -expand 1 -fill both
+    wm geometry $w.t +$px+$y
+}
+
+proc PopCleanup {w} {
+    eval destroy [winfo child $w]
+}
+
+
+proc AppLayout {w Hist} {
+    global IconDir icThemes icSizes
+
+    set ww [toplevel $w]
+    bind $ww <Configure> {center_toplevel %W}
+
+    set sz [expr {int(ceil(sqrt([llength $Hist])))*2}]
+    set sz2 [expr {int($sz/2)}]
+    wm resizable $ww 0 0
+    wm overrideredirect $ww 1
+
+    
+    set r 1
+    array set grid {}
+    set id 0
+
+    foreach n $Hist {
+	foreach {Menu Name Exec Path Comment Terminal Icon} $n break
+
+	set b [button $w.b[incr id] -command [list PieLaunch $ww $n]]
+
+	if {$Icon != ""} {
+	    # Try to find the icon...
+	    set ifile $Icon
+
+	    if {[string tolower [file extension $ifile]] != "png"} {
+		set ifile "[file rootname $ifile].png"
+	    }
+	    if {![file exists $ifile]} {
+		# File is not an absolute path... so search for it...
+		set ifile [file join $IconDir $icThemes $icSizes * $ifile]
+		set ifile [glob -nocomplain $ifile]
+		set ifile [lindex $ifile 0]
+	    }
+	    if {$ifile == ""} {
+		set Icon ""
+	    } else {
+		if {[catch {image create photo b$b -file $ifile} err]} {
+		    puts stderr "$ifile: $err"
+		    set Icon ""
+		} else {
+		    set Icon b$b
+		}
+	    }
+	}
+	   
+
+	       if {$Icon == ""} {
+	    $b config -text [string map {" " "\n"} $Name]
+	} else {
+	    $b config -image $Icon
+	}
+	bind $b <Enter> [list PopHint %X %Y $b $Comment]
+	bind $b <Leave> [list PopCleanup $b]
+
+	#
+	# Compute location of icon
+	#
+	set r [PickCell $r $sz2 dx dy grid]
+
+	# puts "$Name  $dx,$dy"
+	grid $b -sticky news -column $dx -row $dy
+    }
+    bind $ww <Button> [list PieCleanUp $ww %W]
+    update
+    grab set -global $ww 
+}
+    
+
+
+#
+# Read from /usr/share/applications/*.desktop for menu times
+# http://standards.freedesktop.org/desktop-entry-spec/latest/
+#
+
+
+
+#wm withdraw .
+#DoAppsMenu
+#puts Done
+
+
+#button .b -text "Push me" -command DoAppsMenu
+#pack .b
+
+#wm resizable . 0 0
+#wm overrideredirect . 1
+
+
+#
+# Protocol handler
+#
+proc WM_Wait {} {
+    set count 0
+    wm resizable . 0 0
+    wm overrideredirect . 1
+    wm geometry . =0x0+0+0
+    wm deiconify .
+
+    while {[catch {grab set -global .} err]} {
+	if {[incr count] > 10} {
+	    return -1
+	}
+	puts "$err ($count)"
+	global mm
+	set mm 0
+	after 100 incr mm
+	vwait mm
+    }
+    grab release .
+    wm withdraw .
+    return 0
+}
+
+
+toplevel .msg
+wm withdraw .msg
+wm protocol .msg WM_ROOT_BUTTON1 {
+    if {![WM_Wait]} {
+	AppLayout .mm $AppHist
+    }
+}
+wm protocol .msg WM_ROOT_BUTTON2 {
+    if {![WM_Wait]} {
+	DoAppsMenu
+    }
+}
+wm withdraw .
+if {[file exists $HistFile]} {
+    source $HistFile
+}
+AppLayout .mm $AppHist
+
+
+

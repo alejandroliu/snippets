@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# Post the usr/local/src files
+#
+[ -z "$FDIST_HOME" ] && export FDIST_HOME=$(cd $(dirname $0)/.. && pwd)
+[ -z "$SITE_PATH" ] && export SITE_PATH=$HOME/www
+
+destdir=$SITE_PATH/fdist
+myphp="$FDIST_HOME/pkgs/ashlib/ashcc --myphp"
+
+mkdir -p $destdir
+for pkgdir in $FDIST_HOME/pkgs/*
+do
+  [ ! -f $pkgdir/Makefile ] && continue
+  pkgname=$(basename $pkgdir)
+  mkdir -p $destdir/$pkgname
+  make -C $pkgdir DESTDIR=$destdir/$pkgname install
+done
+
+$myphp $FDIST_HOME/pkgs/fdist/mkindex.php $destdir
+
+. $FDIST_HOME/pkgs/ashlib/fixfile.sh
+fixfile $SITE_PATH/proxy.php < $FDIST_HOME/pkgs/fdist/proxy.php

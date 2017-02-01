@@ -1,0 +1,7 @@
+
+MERGE Standard with bg mode
+
+- BG mode - catch errors so that we can continue,
+in particular prunedirs needs to be protected.
+- Add a sync now to syncbg.
+
